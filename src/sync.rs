@@ -36,7 +36,7 @@ pub struct RerunSyncPlugin {
 impl Plugin for RerunSyncPlugin {
     fn build(&self, app: &mut App) {
         self.rec
-            .log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_UP)
+            .log_static("world", &rerun::ViewCoordinates::RIGHT_HAND_Y_UP())
             .ok_or_log_error();
 
         let state = RerunSyncState {
@@ -161,8 +161,10 @@ fn sync_components(
             .get::<CurrentHashes>()
             .unwrap_or(&empty_hashes);
 
-        let mut as_components: HashMap<Option<&'static str>, Vec<Box<dyn rerun::AsComponents>>> =
-            Default::default();
+        let mut all_batches: HashMap<
+            Option<&'static str>,
+            Vec<Vec<rerun::SerializedComponentBatch>>,
+        > = Default::default();
         for component in world.inspect_entity(entity_id) {
             let mut has_changed = entity
                 .get_change_ticks_by_id(component.id())
@@ -196,8 +198,8 @@ fn sync_components(
             if let Some(logger) =
                 get_component_logger(component, loggers.as_ref(), &default_loggers)
             {
-                let (suffix, data) = logger(world, &all_entities, entity, component);
-                as_components.entry(suffix).or_default().extend(data);
+                let (suffix, batches) = logger(world, &all_entities, entity, component);
+                all_batches.entry(suffix).or_default().push(batches);
             }
         }
 
@@ -207,15 +209,7 @@ fn sync_components(
 
         let mut current_components = HashMap::default();
 
-        // TODO(cmc): lots of inneficiencies and awkward collections that are forced upon us
-        // because of how the RecordingStream API is designed.
-        // After quite a bit of juggling it's not too bad though.
-        for (suffix, as_components) in as_components {
-            let component_batches = as_components
-                .iter()
-                .map(|data| data.as_component_batches())
-                .collect::<Vec<_>>();
-
+        for (suffix, batches) in all_batches {
             let entity_path: rerun::EntityPath = suffix.map_or_else(
                 || entity_path.clone(),
                 // NOTE(cmc): The extra `comps/` is crucial so that we can easily clear everything
@@ -223,24 +217,13 @@ fn sync_components(
                 |suffix| entity_path.join(&"comps".into()).join(&suffix.into()),
             );
 
-            for batches in &component_batches {
+            for batches in &batches {
                 for batch in batches {
-                    current_components.insert(
-                        rerun::ComponentBatch::descriptor(batch).into_owned(),
-                        entity_path.clone(),
-                    );
+                    current_components.insert(batch.descriptor.clone(), entity_path.clone());
                 }
             }
 
-            rec.log_component_batches(
-                entity_path,
-                false,
-                component_batches
-                    .iter()
-                    .flatten()
-                    .map(|batch| batch as &dyn rerun::ComponentBatch),
-            )
-            .ok_or_log_error();
+            rec.log(entity_path, &batches).ok_or_log_error();
         }
 
         let empty_components = CurrentComponents::default();

@@ -2,10 +2,11 @@ use bevy::{
     ecs::component::ComponentInfo,
     prelude::*,
     render::{mesh::PlaneMeshBuilder, primitives::Aabb},
-    utils::HashMap,
 };
 
-use crate::{compute_entity_path, Aliased, RerunLogger, ToRerun};
+use rerun::{external::nohash_hasher::IntMap, AsComponents as _, ComponentBatch};
+
+use crate::{compute_entity_path, RerunLogger, ToRerun};
 
 // ---
 
@@ -15,13 +16,13 @@ use crate::{compute_entity_path, Aliased, RerunLogger, ToRerun};
 ///
 /// Public so end users can easily inspect what is configured by default.
 #[derive(Resource, Deref, DerefMut, Clone, Debug)]
-pub struct DefaultRerunComponentLoggers(HashMap<rerun::ComponentName, Option<RerunLogger>>);
+pub struct DefaultRerunComponentLoggers(IntMap<rerun::ComponentName, Option<RerunLogger>>);
 
 // TODO(cmc): DataUi being typed makes aliases uninspectable :(
 #[allow(clippy::too_many_lines)]
 impl Default for DefaultRerunComponentLoggers {
     fn default() -> Self {
-        let mut loggers = HashMap::default();
+        let mut loggers = IntMap::default();
 
         loggers.insert(
             "bevy_transform::components::transform::Transform".into(),
@@ -81,20 +82,23 @@ impl Default for DefaultRerunComponentLoggers {
 
 // ---
 
+// TODO(cmc): all those aliasing reshenanigans should really just be custom archetype names in
+// the descriptor, but the viewer won't be ready for that in 0.22.
+
 fn bevy_transform<'w>(
     _world: &'w World,
     _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
-    let suffix = None;
-
-    let data = entity
-        .get::<Transform>()
-        .map(|transform| transform.to_rerun())
-        .map(|data| Box::new(data) as _);
-
-    (suffix, data)
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
+    (
+        None,
+        entity
+            .get::<Transform>()
+            .into_iter()
+            .flat_map(|transform| transform.to_rerun().as_serialized_batches())
+            .collect(),
+    )
 }
 
 fn bevy_global_transform<'w>(
@@ -102,27 +106,26 @@ fn bevy_global_transform<'w>(
     _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = None;
-
     // TODO(cmc): once again the DataUi does the wrong thing... we really need to
     // go typeless.
-    let data = entity.get::<GlobalTransform>().map(|transform| {
-        Box::new(vec![
-            Box::new(Aliased::<rerun::datatypes::Vec3D>::new(
-                "GlobalTransform3D.translation",
-                transform.translation().to_rerun(),
-            )) as Box<dyn rerun::AsComponents>,
-            Box::new(Aliased::<rerun::datatypes::Quaternion>::new(
-                "GlobalTransform3D.rotation",
-                transform.rotation().to_rerun(),
-            )),
-            Box::new(Aliased::<rerun::datatypes::Vec3D>::new(
-                "GlobalTransform3D.scale",
-                transform.scale().to_rerun(),
-            )),
-        ]) as _
-    });
+    let data = entity
+        .get::<GlobalTransform>()
+        .into_iter()
+        .flat_map(|transform| {
+            transform
+                .to_rerun()
+                .as_serialized_batches()
+                .into_iter()
+                .map(|batch| {
+                    let name = batch.descriptor.component_name;
+                    batch.with_descriptor_override(rerun::ComponentDescriptor::new(format!(
+                        "{name}Global"
+                    )))
+                })
+        })
+        .collect();
 
     (suffix, data)
 }
@@ -133,13 +136,13 @@ fn bevy_mesh<'w>(
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
     handle: Option<&Handle<Mesh>>,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
-    let suffix: Option<&str> = None;
-
-    let data = handle
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
+    let suffix = None;
+    let batches = handle
         .and_then(|handle| world.resource::<Assets<Mesh>>().get(handle))
         .and_then(ToRerun::to_rerun)
-        .map(|mut mesh| {
+        .into_iter()
+        .flat_map(|mut mesh| {
             if let Some(mat) = entity
                 .get::<MeshMaterial2d<ColorMaterial>>()
                 .and_then(|handle| world.resource::<Assets<ColorMaterial>>().get(handle))
@@ -161,11 +164,10 @@ fn bevy_mesh<'w>(
                     mesh = mesh.with_albedo_texture(image_format, image_data);
                 }
             }
-            mesh
+            mesh.as_serialized_batches()
         })
-        .map(|mesh| Box::new(mesh) as _);
-
-    (suffix, data)
+        .collect();
+    (suffix, batches)
 }
 
 fn bevy_mesh2d<'w>(
@@ -173,16 +175,16 @@ fn bevy_mesh2d<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = Some("mesh2d");
-    let (_, data) = bevy_mesh(
+    let (_, batches) = bevy_mesh(
         world,
         all_entities,
         entity,
         component,
         entity.get::<Mesh2d>().map(|handle| &handle.0),
     );
-    (suffix, data)
+    (suffix, batches)
 }
 
 fn bevy_mesh3d<'w>(
@@ -190,16 +192,16 @@ fn bevy_mesh3d<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = Some("mesh3d");
-    let (_, data) = bevy_mesh(
+    let (_, batches) = bevy_mesh(
         world,
         all_entities,
         entity,
         component,
         entity.get::<Mesh3d>().map(|handle| &handle.0),
     );
-    (suffix, data)
+    (suffix, batches)
 }
 
 fn bevy_camera<'w, C: Component + ToRerun<rerun::Pinhole>>(
@@ -207,14 +209,15 @@ fn bevy_camera<'w, C: Component + ToRerun<rerun::Pinhole>>(
     _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = Some("cam");
-    let data = entity
+    let batches = entity
         .get::<C>()
         // TODO(cmc): log visible entities too?
-        .map(ToRerun::to_rerun)
-        .map(|mesh| Box::new(mesh) as _);
-    (suffix, data)
+        .into_iter()
+        .flat_map(|mesh| mesh.to_rerun().as_serialized_batches())
+        .collect();
+    (suffix, batches)
 }
 
 fn bevy_projection<'w>(
@@ -222,7 +225,7 @@ fn bevy_projection<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     bevy_camera::<Projection>(world, all_entities, entity, component)
 }
 
@@ -231,7 +234,7 @@ fn bevy_projection_orthographic<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     bevy_camera::<OrthographicProjection>(world, all_entities, entity, component)
 }
 
@@ -240,7 +243,7 @@ fn bevy_projection_perspective<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     bevy_camera::<PerspectiveProjection>(world, all_entities, entity, component)
 }
 
@@ -250,10 +253,9 @@ fn bevy_sprite<'w>(
     _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = Some("sprite");
-
-    let data = entity
+    let batches = entity
         .get::<Sprite>()
         .and_then(|sprite| {
             world
@@ -271,9 +273,10 @@ fn bevy_sprite<'w>(
                     })
                 })
         })
-        .map(|data| Box::new(data) as _);
-
-    (suffix, data)
+        .into_iter()
+        .flat_map(|mesh| mesh.as_serialized_batches())
+        .collect();
+    (suffix, batches)
 }
 
 fn bevy_aabb<'w>(
@@ -281,9 +284,9 @@ fn bevy_aabb<'w>(
     _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = Some("aabb");
-    let data = entity
+    let batches = entity
         .get::<Aabb>()
         .map(|aabb| {
             rerun::Boxes3D::from_centers_and_half_sizes(
@@ -308,9 +311,10 @@ fn bevy_aabb<'w>(
                 aabb
             }
         })
-        .map(|data| Box::new(data) as _);
-
-    (suffix, data)
+        .into_iter()
+        .flat_map(|aabb| aabb.as_serialized_batches())
+        .collect();
+    (suffix, batches)
 }
 
 fn bevy_parent<'w>(
@@ -318,19 +322,21 @@ fn bevy_parent<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = None;
-    let data = entity
+    let batches = entity
         .get::<Parent>()
-        .map(|parent| {
+        .and_then(|parent| {
             let parent_entity_path = compute_entity_path(world, all_entities, parent.get());
-            Aliased::<rerun::datatypes::EntityPath>::new(
-                "Parent",
-                rerun::datatypes::EntityPath(parent_entity_path.to_string().into()),
-            )
+            rerun::components::EntityPath(parent_entity_path.to_string().into())
+                .serialized()
+                .map(|batch| {
+                    batch.with_descriptor_override(rerun::ComponentDescriptor::new("Parent"))
+                })
         })
-        .map(|data| Box::new(data) as _);
-    (suffix, data)
+        .into_iter()
+        .collect();
+    (suffix, batches)
 }
 
 fn bevy_children<'w>(
@@ -338,43 +344,26 @@ fn bevy_children<'w>(
     all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
-) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = None;
-
-    // TODO(cmc): it is once again super annoying that number of instances gets resolved at logging
-    // time... we need those clamp-to-edge semantics asap.
-    // let data = entity
-    //     .get::<Children>()
-    //     .map(|children| {
-    //         let children = children
-    //             .iter()
-    //             .map(|entity_id| {
-    //                 rerun::datatypes::EntityPath(
-    //                     compute_entity_path(world, all_entities, *entity_id)
-    //                         .to_string()
-    //                         .into(),
-    //                 )
-    //             })
-    //             .collect::<Vec<_>>();
-    //         Aliased::<Vec<rerun::datatypes::EntityPath>>::new(
-    //             "RawChildren",
-    //             children,
-    //         )
-    //     })
-    //     .map(|data| Box::new(data) as _);
-
-    let data = entity
+    let batches = entity
         .get::<Children>()
-        .map(|children| {
+        .and_then(|children| {
             let children = children
                 .iter()
-                .map(|entity_id| compute_entity_path(world, all_entities, *entity_id).to_string())
+                .map(|entity_id| {
+                    rerun::components::EntityPath(
+                        compute_entity_path(world, all_entities, *entity_id)
+                            .to_string()
+                            .into(),
+                    )
+                })
                 .collect::<Vec<_>>();
-            Aliased::<rerun::components::Text>::new(
-                "RawChildren",
-                rerun::components::Text(children.join("\n").into()),
-            )
+            children.serialized().map(|batch| {
+                batch.with_descriptor_override(rerun::ComponentDescriptor::new("Children"))
+            })
         })
-        .map(|data| Box::new(data) as _);
-    (suffix, data)
+        .into_iter()
+        .collect();
+    (suffix, batches)
 }

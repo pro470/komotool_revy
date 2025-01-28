@@ -6,6 +6,7 @@ use bevy::{
     reflect::{serde::ReflectSerializer, ReflectFromPtr},
     utils::HashMap,
 };
+use rerun::ComponentBatch;
 
 use crate::DefaultRerunComponentLoggers;
 
@@ -24,7 +25,7 @@ pub trait RerunLoggerFn:
         &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
         EntityRef<'_>,
         &'w ComponentInfo,
-    ) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>)
+    ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>)
 {
 }
 
@@ -36,7 +37,7 @@ impl<F> RerunLoggerFn for F where
             &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
             EntityRef<'_>,
             &'w ComponentInfo,
-        ) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>)
+        ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>)
 {
 }
 
@@ -136,13 +137,22 @@ pub fn get_component_logger<'a>(
         _all_entities: &QueryState<(Entity, Option<&Parent>, Option<&Name>)>,
         entity: EntityRef<'_>,
         component: &ComponentInfo,
-    ) -> (Option<&'static str>, Option<Box<dyn rerun::AsComponents>>) {
+    ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
         let name = component.name();
         let body = component_to_ron(world, entity, component)
             .unwrap_or_else(|| "<missing reflection metadata>".into());
-        let reflected = Aliased::<rerun::components::Text>::new(name.replace("::", "."), body);
-
-        (None, Some(Box::new(reflected) as _))
+        (
+            None,
+            rerun::components::Text(body.into())
+                .serialized()
+                .into_iter()
+                .map(|batch| {
+                    batch.with_descriptor_override(rerun::ComponentDescriptor::new(
+                        name.replace("::", "."),
+                    ))
+                })
+                .collect(),
+        )
     }
 
     static LOG_IGNORED_COMPONENT: RerunLogger = RerunLogger::new_static(&log_ignored_component);
@@ -176,53 +186,4 @@ fn component_to_ron(
                 ron::ser::to_string_pretty(&serializer, ron::ser::PrettyConfig::default()).ok()
             })
         })
-}
-
-// ---
-
-// TODO(cmc): Rerun should provide tools for this.
-// TODO(cmc): All this traits are very messy... CompomnentName vs. DatatypeName in particular is
-// very annoying. Actually just Component vs. Datatype being different types in general is very
-// annoying.
-// TODO(cmc): the whole Loggable vs. LoggableBatch is also so messy
-
-use rerun::external::{arrow2, re_types_core};
-
-/// Helper to log any [`rerun::LoggableBatch`] as a [`rerun::Component`] with the specified name.
-#[derive(Debug)]
-pub struct Aliased<C: rerun::LoggableBatch> {
-    descriptor: rerun::ComponentDescriptor,
-    data: C,
-}
-
-impl<C: rerun::LoggableBatch> Aliased<C> {
-    pub fn new(name: impl Into<rerun::ComponentName>, data: impl Into<C>) -> Self {
-        Self {
-            descriptor: rerun::ComponentDescriptor::new(name.into()),
-            data: data.into(),
-        }
-    }
-}
-
-impl<C: rerun::LoggableBatch> rerun::AsComponents for Aliased<C> {
-    #[inline]
-    fn as_component_batches(&self) -> Vec<rerun::ComponentBatchCowWithDescriptor<'_>> {
-        vec![rerun::ComponentBatchCowWithDescriptor::new(
-            self as &dyn rerun::ComponentBatch,
-        )]
-    }
-}
-
-impl<C: rerun::LoggableBatch> rerun::LoggableBatch for Aliased<C> {
-    #[inline]
-    fn to_arrow2(&self) -> re_types_core::SerializationResult<Box<dyn arrow2::array::Array>> {
-        self.data.to_arrow2()
-    }
-}
-
-impl<C: rerun::LoggableBatch> rerun::ComponentBatch for Aliased<C> {
-    #[inline]
-    fn descriptor(&self) -> std::borrow::Cow<'_, rerun::ComponentDescriptor> {
-        std::borrow::Cow::Borrowed(&self.descriptor)
-    }
 }
