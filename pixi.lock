@@ -84,7 +84,6 @@ environments:
       linux-aarch64:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-2_gnu.tar.bz2
       - conda: https://conda.anaconda.org/conda-forge/noarch/_sysroot_linux-aarch64_curr_repodata_hack-4-h57d6b7b_14.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.14-h86ecc28_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/binutils-2.40-h64c2a2e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/binutils_impl_linux-aarch64-2.40-h870a726_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/binutils_linux-aarch64-2.40-h95d2017_3.conda
@@ -395,15 +394,6 @@ packages:
   license_family: GPL
   size: 566531
   timestamp: 1744668655747
-- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/alsa-lib-1.2.14-h86ecc28_0.conda
-  sha256: 0aa836f6dd9132f243436898ed8024f408910f65220bafbfc95f71ab829bb395
-  md5: a696b24c1b473ecc4774bcb5a6ac6337
-  depends:
-  - libgcc >=13
-  license: LGPL-2.1-or-later
-  license_family: GPL
-  size: 595290
-  timestamp: 1744668754404
 - conda: https://conda.anaconda.org/conda-forge/linux-64/binutils-2.40-hdd6e379_0.conda
   sha256: 35f3b042f295fd7387de11cf426ca8ee5257e5c98b88560c6c5ad4ef3c85d38c
   md5: ccc940fddbc3fcd3d79cd4c654c4b5c4
