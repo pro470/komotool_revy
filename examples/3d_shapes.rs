@@ -35,8 +35,6 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins.set(ImagePlugin::default_nearest()),
-            #[cfg(not(target_arch = "wasm32"))]
-            WireframePlugin,
         ))
         // ==== Instantiating the Rerun plugin ===========================================
         //
@@ -46,10 +44,10 @@ fn main() {
         // Check out the `RecordingStreamBuilder` (<https://docs.rs/rerun/latest/rerun/struct.RecordingStreamBuilder.html>)
         // docs for other options (saving to file, connecting to a remote viewer, etc).
         .add_plugins({
-            let rec = revy::RecordingStreamBuilder::new("3d_shapes")
+            let rec = komotool_revy::RecordingStreamBuilder::new("3d_shapes")
                 .spawn()
                 .unwrap();
-            revy::RerunPlugin { rec }
+            komotool_revy::RerunPlugin { rec }
         })
         // ===============================================================================
         .add_systems(Startup, setup)

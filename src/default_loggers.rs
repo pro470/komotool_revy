@@ -66,8 +66,8 @@ impl Default for DefaultRerunComponentLoggers {
         );
 
         loggers.insert(
-            "bevy_hierarchy::components::parent::Parent".into(),
-            Some(RerunLogger::new_static(&bevy_parent)),
+            "bevy_hierarchy::components::ChildOf::ChildOf".into(),
+            Some(RerunLogger::new_static(&bevy_child_of)),
         );
         loggers.insert(
             "bevy_hierarchy::components::children::Children".into(),
@@ -87,7 +87,7 @@ impl Default for DefaultRerunComponentLoggers {
 
 fn bevy_transform<'w>(
     _world: &'w World,
-    _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
+    _all_entities: &'w QueryState<(Entity, Option<&'w ChildOf>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
 ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
@@ -103,7 +103,7 @@ fn bevy_transform<'w>(
 
 fn bevy_global_transform<'w>(
     _world: &'w World,
-    _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
+    _all_entities: &'w QueryState<(Entity, Option<&'w ChildOf>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
 ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
@@ -281,7 +281,7 @@ fn bevy_sprite<'w>(
 
 fn bevy_aabb<'w>(
     world: &'w World,
-    _all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
+    _all_entities: &'w QueryState<(Entity, Option<&'w ChildOf>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
 ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
@@ -317,21 +317,21 @@ fn bevy_aabb<'w>(
     (suffix, batches)
 }
 
-fn bevy_parent<'w>(
+fn bevy_child_of<'w>(
     world: &'w World,
-    all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
+    all_entities: &'w QueryState<(Entity, Option<&'w ChildOf>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
 ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
     let suffix = None;
     let batches = entity
-        .get::<Parent>()
-        .and_then(|parent| {
-            let parent_entity_path = compute_entity_path(world, all_entities, parent.get());
-            rerun::components::EntityPath(parent_entity_path.to_string().into())
+        .get::<ChildOf>()
+        .and_then(|child_of| {
+            let childof_entity_path = compute_entity_path(world, all_entities, child_of.parent());
+            rerun::components::EntityPath(childof_entity_path.to_string().into())
                 .serialized()
                 .map(|batch| {
-                    batch.with_descriptor_override(rerun::ComponentDescriptor::new("Parent"))
+                    batch.with_descriptor_override(rerun::ComponentDescriptor::new("ChildOf"))
                 })
         })
         .into_iter()
@@ -341,7 +341,7 @@ fn bevy_parent<'w>(
 
 fn bevy_children<'w>(
     world: &'w World,
-    all_entities: &'w QueryState<(Entity, Option<&'w Parent>, Option<&'w Name>)>,
+    all_entities: &'w QueryState<(Entity, Option<&'w ChildOf>, Option<&'w Name>)>,
     entity: EntityRef<'_>,
     _component: &'w ComponentInfo,
 ) -> (Option<&'static str>, Vec<rerun::SerializedComponentBatch>) {
@@ -353,7 +353,7 @@ fn bevy_children<'w>(
                 .iter()
                 .map(|entity_id| {
                     rerun::components::EntityPath(
-                        compute_entity_path(world, all_entities, *entity_id)
+                        compute_entity_path(world, all_entities, entity_id)
                             .to_string()
                             .into(),
                     )

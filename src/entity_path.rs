@@ -8,7 +8,7 @@ use bevy::prelude::*;
 /// out-of-date.
 pub fn ancestors_from_world<'w: 's, 's>(
     world: &'w World,
-    entities: &'w QueryState<(Entity, Option<&'s Parent>, Option<&'s Name>)>,
+    entities: &'w QueryState<(Entity, Option<&'s ChildOf>, Option<&'s Name>)>,
     entity_id: Entity,
 ) -> impl Iterator<Item = Entity> + 'w {
     let mut current_entity_id = entity_id;
@@ -16,8 +16,8 @@ pub fn ancestors_from_world<'w: 's, 's>(
         #[allow(clippy::collapsible_match)]
         if let Ok((_, parent, _)) = entities.get_manual(world, current_entity_id) {
             if let Some(parent) = parent {
-                current_entity_id = **parent;
-                return Some(**parent);
+                current_entity_id = parent.parent();
+                return Some(parent.parent());
             }
         }
         None
@@ -33,7 +33,7 @@ pub fn ancestors_from_world<'w: 's, 's>(
 /// out-of-date.
 pub fn compute_entity_path<'w: 's, 's>(
     world: &'w World,
-    entities: &'w QueryState<(Entity, Option<&'s Parent>, Option<&'s Name>)>,
+    entities: &'w QueryState<(Entity, Option<&'s ChildOf>, Option<&'s Name>)>,
     entity_id: Entity,
 ) -> rerun::EntityPath {
     // TODO(cmc): kinda awkward that we have to prefix `world/` everywhere or hell ensues.

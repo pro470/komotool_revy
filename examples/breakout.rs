@@ -74,10 +74,10 @@ fn main() {
         // Check out the `RecordingStreamBuilder` (<https://docs.rs/rerun/latest/rerun/struct.RecordingStreamBuilder.html>)
         // docs for other options (saving to file, connecting to a remote viewer, etc).
         .add_plugins({
-            let rec = revy::RecordingStreamBuilder::new("breakout")
+            let rec = komotool_revy::RecordingStreamBuilder::new("breakout")
                 .spawn()
                 .unwrap();
-            revy::RerunPlugin { rec }
+            komotool_revy::RerunPlugin { rec }
         })
         // ===============================================================================
         .insert_resource(Score(0))

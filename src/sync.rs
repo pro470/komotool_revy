@@ -1,15 +1,16 @@
 use std::hash::Hash;
 
+use ahash::AHasher;
 use bevy::{
-    core::FrameCount,
+    diagnostic::FrameCount,
     ecs::{
         component::{ComponentId, ComponentInfo},
         entity::EntityHashMap,
         event::EventCursor,
     },
+    platform::collections::HashMap,
     prelude::*,
     reflect::{serde::ReflectSerializer, ReflectFromPtr},
-    utils::{AHasher, HashMap},
 };
 use rerun::external::re_log::ResultExt;
 
@@ -85,7 +86,7 @@ fn set_recording_time(world: &World, rec: &rerun::RecordingStream) {
     let tick = world.resource::<FrameCount>();
     let frame = tick.0;
 
-    rec.set_time_seconds("sim_time", elapsed);
+    rec.set_duration_secs("sim_time", elapsed);
     // TODO(cmc): i'll log it once i can tell the blueprint to default to `sim_time`.
     // rec.set_time_sequence("sim_frame", frame);
     _ = frame;
@@ -121,7 +122,7 @@ fn sync_components(
 
     let _trace = info_span!("sync_components").entered();
 
-    let mut all_entities = world.query::<(Entity, Option<&Parent>, Option<&Name>)>();
+    let mut all_entities = world.query::<(Entity, Option<&ChildOf>, Option<&Name>)>();
     all_entities.update_archetypes(world);
 
     // TODO(cmc): do this the smart way
@@ -165,49 +166,56 @@ fn sync_components(
             Option<&'static str>,
             Vec<Vec<rerun::SerializedComponentBatch>>,
         > = Default::default();
-        for component in world.inspect_entity(entity_id) {
-            let mut has_changed = entity
-                .get_change_ticks_by_id(component.id())
-                .map_or(false, |changes| {
-                    changes.is_changed(last_change_tick, change_tick)
-                });
+        if let Ok(component_iter) = world.inspect_entity(entity_id) {
+            for component in component_iter {
+                let mut has_changed = entity
+                    .get_change_ticks_by_id(component.id())
+                    .map_or(false, |changes| {
+                        changes.is_changed(last_change_tick, change_tick)
+                    });
 
-            // TODO(cmc): implement proper subscription model for asset dependencies
-            has_changed |=
-                !image_events.is_empty() && DEPENDS_ON_IMAGES.contains(&component.name());
-            has_changed |= !mesh_events.is_empty() && DEPENDS_ON_MESHES.contains(&component.name());
-            has_changed |=
-                !stdmat_events.is_empty() && DEPENDS_ON_STDMATS.contains(&component.name());
-            has_changed |=
-                !colmat_events.is_empty() && DEPENDS_ON_COLMATS.contains(&component.name());
+                // TODO(cmc): implement proper subscription model for asset dependencies
+                has_changed |=
+                    !image_events.is_empty() && DEPENDS_ON_IMAGES.contains(&component.name());
+                has_changed |=
+                    !mesh_events.is_empty() && DEPENDS_ON_MESHES.contains(&component.name());
+                has_changed |=
+                    !stdmat_events.is_empty() && DEPENDS_ON_STDMATS.contains(&component.name());
+                has_changed |=
+                    !colmat_events.is_empty() && DEPENDS_ON_COLMATS.contains(&component.name());
 
-            if !has_changed {
-                continue;
-            }
-
-            {
-                // NOTE: Default the hash to 0, that way `<missing reflection data>` will be mapped
-                // to 0 and will be logged only once rather than every frame.
-                let component_hash = component_to_hash(world, entity, component).unwrap_or(0u64);
-                current_hashes.insert(component.id(), component_hash);
-                if last_hashes.get(&component.id()) == Some(&component_hash) {
+                if !has_changed {
                     continue;
                 }
-            }
 
-            if let Some(logger) =
-                get_component_logger(component, loggers.as_ref(), &default_loggers)
-            {
-                let (suffix, batches) = logger(world, &all_entities, entity, component);
-                all_batches.entry(suffix).or_default().push(batches);
+                {
+                    // NOTE: Default the hash to 0, that way `<missing reflection data>` will be mapped
+                    // to 0 and will be logged only once rather than every frame.
+                    let component_hash =
+                        component_to_hash(world, entity, component).unwrap_or(0u64);
+                    current_hashes.insert(component.id(), component_hash);
+                    if last_hashes.get(&component.id()) == Some(&component_hash) {
+                        continue;
+                    }
+                }
+
+                if let Some(logger) =
+                    get_component_logger(component, loggers.as_ref(), &default_loggers)
+                {
+                    let (suffix, batches) = logger(world, &all_entities, entity, component);
+                    all_batches.entry(suffix).or_default().push(batches);
+                }
             }
+        } else {
+            warn!("Failed to inspect entity: {entity_id:?}");
         }
 
         if !current_hashes.is_empty() {
             deferred_hash_updates.push((entity_id, current_hashes));
         }
 
-        let mut current_components = HashMap::default();
+        let mut current_components: HashMap<rerun::ComponentDescriptor, rerun::EntityPath> =
+            HashMap::default();
 
         for (suffix, batches) in all_batches {
             let entity_path: rerun::EntityPath = suffix.map_or_else(
@@ -290,8 +298,8 @@ fn component_to_hash(
             reflected.ok().and_then(|reflected| {
                 let serializer =
                     ReflectSerializer::new(reflected.as_partial_reflect(), &type_registry);
-                let mut bytes = Vec::<u8>::new();
-                ron::ser::to_writer(&mut bytes, &serializer).ok()?;
+                let serialized = ron::ser::to_string(&serializer).ok()?;
+                let bytes = serialized.into_bytes();
 
                 use std::hash::Hasher;
                 let mut hasher = AHasher::default();

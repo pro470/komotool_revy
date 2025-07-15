@@ -44,10 +44,10 @@ fn main() {
         // Check out the `RecordingStreamBuilder` (<https://docs.rs/rerun/latest/rerun/struct.RecordingStreamBuilder.html>)
         // docs for other options (saving to file, connecting to a remote viewer, etc).
         .add_plugins({
-            let rec = revy::RecordingStreamBuilder::new("alien_cake_addict")
+            let rec = komotool_revy::RecordingStreamBuilder::new("alien_cake_addict")
                 .spawn()
                 .unwrap();
-            revy::RerunPlugin { rec }
+            komotool_revy::RerunPlugin { rec }
         })
         // ===============================================================================
         .init_resource::<Game>()
@@ -141,7 +141,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut game: ResMu
         // This isn't strictly required in practical use unless you need your app to be deterministic.
         ChaCha8Rng::seed_from_u64(19878367467713)
     } else {
-        ChaCha8Rng::from_entropy()
+        ChaCha8Rng::from_os_rng()
     };
 
     // reset the game state
