@@ -10,12 +10,12 @@ use bevy::{
     },
     platform::collections::HashMap,
     prelude::*,
-    reflect::{serde::ReflectSerializer, ReflectFromPtr},
+    reflect::{ReflectFromPtr, serde::ReflectSerializer},
 };
 use rerun::external::re_log::ResultExt;
 
 use crate::{
-    compute_entity_path, get_component_logger, DefaultRerunComponentLoggers, RerunComponentLoggers,
+    DefaultRerunComponentLoggers, RerunComponentLoggers, compute_entity_path, get_component_logger,
 };
 
 // ---
@@ -170,9 +170,7 @@ fn sync_components(
             for component in component_iter {
                 let mut has_changed = entity
                     .get_change_ticks_by_id(component.id())
-                    .map_or(false, |changes| {
-                        changes.is_changed(last_change_tick, change_tick)
-                    });
+                    .is_some_and(|changes| changes.is_changed(last_change_tick, change_tick));
 
                 // TODO(cmc): implement proper subscription model for asset dependencies
                 has_changed |=
