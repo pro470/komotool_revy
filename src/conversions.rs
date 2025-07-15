@@ -122,4 +122,3 @@ impl ToRerun<Option<rerun::archetypes::Mesh3D>> for Mesh {
         }
     }
 }
-
