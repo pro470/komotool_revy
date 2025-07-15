@@ -169,7 +169,7 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>, mut game: ResMu
         .map(|j| {
             (0..BOARD_SIZE_I)
                 .map(|i| {
-                    let height = rng.gen_range(-0.1..0.1);
+                    let height = rng.random_range(-0.1..0.1);
                     commands.spawn((
                         StateScoped(GameState::Playing),
                         Transform::from_xyz(i as f32, height - 0.2, j as f32),
@@ -288,7 +288,7 @@ fn move_player(
         if game.player.i == game.bonus.i && game.player.j == game.bonus.j {
             game.score += 2;
             game.cake_eaten += 1;
-            commands.entity(entity).despawn_recursive();
+            commands.entity(entity).despawn();
             game.bonus.entity = None;
         }
     }
@@ -352,7 +352,7 @@ fn spawn_bonus(
 
     if let Some(entity) = game.bonus.entity {
         game.score -= 3;
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
         game.bonus.entity = None;
         if game.score <= -5 {
             next_state.set(GameState::GameOver);
@@ -362,8 +362,8 @@ fn spawn_bonus(
 
     // ensure bonus doesn't spawn on the player
     loop {
-        game.bonus.i = rng.gen_range(0..BOARD_SIZE_I);
-        game.bonus.j = rng.gen_range(0..BOARD_SIZE_J);
+        game.bonus.i = rng.random_range(0..BOARD_SIZE_I);
+        game.bonus.j = rng.random_range(0..BOARD_SIZE_J);
         if game.bonus.i != game.player.i || game.bonus.j != game.player.j {
             break;
         }

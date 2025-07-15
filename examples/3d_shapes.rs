@@ -33,7 +33,10 @@ use bevy::{
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(ImagePlugin::default_nearest()))
+        .add_plugins((
+            DefaultPlugins.set(ImagePlugin::default_nearest()),
+            WireframePlugin::default(),
+        ))
         // ==== Instantiating the Rerun plugin ===========================================
         //
         // This is the only modification that was applied to this example.
