@@ -35,6 +35,7 @@ fn main() {
     App::new()
         .add_plugins((
             DefaultPlugins.set(ImagePlugin::default_nearest()),
+            #[cfg(not(target_arch = "wasm32"))]
             WireframePlugin::default(),
         ))
         // ==== Instantiating the Rerun plugin ===========================================
