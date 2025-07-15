@@ -23,7 +23,7 @@ ahash = "0.8.12"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
 [workspace.dependencies]
-rerun = { version = "0.23.4", default-features = true, features = [
+rerun = { version = "0.23.4", default-features = false, features = [
     "sdk",
     "image",
     "glam",
