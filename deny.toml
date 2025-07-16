@@ -67,6 +67,9 @@ skip-tree = [
     "unicode-width",
     "windows-sys",
     "windows",
+    "rustc-hash",
+    "linux-raw-sys",
+    "rustix",
 ]
 
 
